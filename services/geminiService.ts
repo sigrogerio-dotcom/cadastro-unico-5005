@@ -31,7 +31,7 @@ export const generateLeaseSummary = async (
     
     **ADMINISTRAÇÃO & PARCERIAS**:
     - Declarar no IR: [Sim/Não]
-    - Taxa Adm: [Valor]%
+    - Taxa Adm: [Se noAdmin for true: "Sem Administração" | Se false: Valor + "%"]
     - Corretor: [realtorName] | Captador: [captorName]
     - Parceria Interna: [Sim/Não] [Se Sim: Nome do Corretor]
     - Parceria Externa: [Sim/Não] [Se Sim: Imobiliária/Corretor]

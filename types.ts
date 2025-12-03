@@ -131,6 +131,7 @@ export interface LeaseState {
   partnershipExternal: boolean;
   partnershipExternalName: string; 
   adminFee: number;
+  noAdmin: boolean; // New field for "Sem ADM"
   declaresIR: boolean;
   
   // Step 3: Financials & Insurance

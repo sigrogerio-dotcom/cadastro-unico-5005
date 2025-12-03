@@ -85,6 +85,7 @@ const INITIAL_STATE: LeaseState = {
   partnershipExternal: false,
   partnershipExternalName: '',
   adminFee: 5,
+  noAdmin: false,
   declaresIR: false,
   propertyAddress: {
     street: '',
@@ -195,6 +196,16 @@ function App() {
       } else {
         finalValue = value.toUpperCase();
       }
+    }
+    
+    // Specific logic for No Admin
+    if (name === 'noAdmin') {
+      setData(prev => ({
+        ...prev,
+        noAdmin: checked,
+        adminFee: checked ? 0 : prev.adminFee
+      }));
+      return;
     }
 
     if (name.startsWith('propertyAddress.')) {
@@ -697,15 +708,31 @@ function App() {
                       </div>
                    </div>
 
-                   <div className="flex gap-4 items-center bg-gray-50 p-2 rounded md:col-span-2">
-                      <div className="flex items-center gap-2">
-                        <label className="text-sm font-medium text-gray-700">Taxa Adm (%):</label>
-                        <input type="number" name="adminFee" value={data.adminFee} onChange={handleInputChange} className="border border-brand-blue p-1 rounded w-16 text-center bg-white text-brand-blue" />
+                   <div className="flex flex-col gap-2 bg-gray-50 p-3 rounded md:col-span-2">
+                      <div className="flex gap-4 items-center">
+                        <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-700">
+                          <input type="checkbox" name="noAdmin" checked={data.noAdmin} onChange={handleInputChange} className="rounded border-brand-blue text-brand-blue" />
+                          SEM ADM
+                        </label>
+                        <div className="flex items-center gap-2 ml-4">
+                          <label className="text-sm font-medium text-gray-700">Taxa Adm (%):</label>
+                          <input 
+                            type="number" 
+                            name="adminFee" 
+                            value={data.adminFee} 
+                            onChange={handleInputChange} 
+                            disabled={data.noAdmin}
+                            className={`border border-brand-blue p-1 rounded w-16 text-center text-brand-blue ${data.noAdmin ? 'bg-gray-200 text-gray-400' : 'bg-white'}`} 
+                          />
+                        </div>
                       </div>
-                      <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-700 border-l pl-4 border-gray-300">
-                        <input type="checkbox" name="declaresIR" checked={data.declaresIR} onChange={handleInputChange} className="rounded border-brand-blue text-brand-blue" />
-                        Declarar no IR
-                      </label>
+                      
+                      <div className="pt-2 border-t border-gray-300 mt-1">
+                        <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-700">
+                          <input type="checkbox" name="declaresIR" checked={data.declaresIR} onChange={handleInputChange} className="rounded border-brand-blue text-brand-blue" />
+                          Declarar no IR
+                        </label>
+                      </div>
                    </div>
                 </div>
             </div>
