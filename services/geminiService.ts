@@ -8,90 +8,122 @@ export const generateLeaseSummary = async (
 ): Promise<string> => {
   if (!process.env.API_KEY) {
     console.error("API Key not found");
-    return "Error: API Key missing. Please set process.env.API_KEY.";
+    return "Erro: Chave de API não encontrada. Verifique process.env.API_KEY.";
   }
 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const systemInstruction = `
-    You are a professional real estate assistant for '5005 Imóveis'. 
-    Your task is to take a JSON object representing lease data (LeaseState) and generate a strictly formatted text summary for the Legal Department in Portuguese.
+    Você é um assistente imobiliário profissional da '5005 Imóveis'. 
+    Sua tarefa é receber um objeto JSON com dados de locação (LeaseState) e gerar um resumo de texto estritamente formatado em PORTUGUÊS DO BRASIL para o departamento jurídico.
     
-    The output must strictly follow this structure:
-    
-    HEADER:
-    5005 IMÓVEIS - RESUMO LOCAÇÃO
-    Imóvel: [Format the 'propertyAddress' object here: Street, Number - Complement - Neighborhood, City/State - CEP]
-    
-    ADMINISTRATIVE:
-    - Declaration to IR: [Yes/No]
-    - Administration Fee: [Value]%
-    - Realtor: [Name] | Captor: [Name]
-    - Partnership Internal: [Yes/No] [If Yes: Name of Partner]
-    - Partnership External: [Yes/No] [If Yes: Name of Agency/Partner]
-    
-    GUARANTEE:
-    - Type: [Guarantee Type]
-    - Details: 
-      [If Caução: Value R$ ...]
-      [If Seguro Fiança: Insurer Name & Policy/Contract Number]
-      [If Título Capitalização: Value R$ ...]
-      [If Fiador: See below]
-    
-    INSURANCE (Format as a clean table-like list):
-    - Type: [Insurance Type]
-    - Coverage: R$ [Value]
-    [List specific coverages: Incendio, Perda Aluguel, etc.]
-    - Monthly Premium: R$ [Value]
-    - Annual Premium: R$ [Value]
+    REGRAS DE FORMATAÇÃO:
+    - DATAS: Use formato DD/MM/AAAA (Ex: 01/05/2024).
+    - VALORES MONETÁRIOS: Use formato R$ X.XXX,XX.
+    - NEGRITO: Use asteriscos duplos (**Texto**) para títulos.
 
-    FINANCIALS:
-    - Rent: R$ [Value]
-    - Condo: R$ [Value]
-    - IPTU: R$ [Value]
-    - Included in Rent: [List items: Water, Electricity, Gas, IPTU, Condominio, Limpeza. If 'Other' is checked, include the specific description provided in 'otherExpenseDescription']
+    A saída deve seguir estritamente esta estrutura:
     
-    DATES & OBS:
-    - Contract Start Date: [contractStartDate]
-    - Rent Due Day: Day [rentDueDay]
-    - Observations: [Observations text from user]
+    **5005 IMÓVEIS - RESUMO LOCAÇÃO**
     
-    PARTIES (Iterate through all lists):
+    **DADOS DO IMÓVEL**: 
+    [Formate o objeto 'propertyAddress' aqui: Rua, Número - Complemento - Bairro, Cidade/UF - CEP]
     
-    LOCADOR(ES):
-    [For each landlord: 
-     Name (or Razão Social), CPF/CNPJ, RG/IE, Civil Status/Type. 
-     If PJ: List Representative Name, CPF, RG, Profession, Civil Status.
-     Representative Address: [Full address including street, number, complement, neighborhood, city, state, cep].
-     Address. Email, Phone.
-     BANKING DETAILS: 
-     Bank: [bankName]
+    **ADMINISTRAÇÃO & PARCERIAS**:
+    - Declarar no IR: [Sim/Não]
+    - Taxa Adm: [Valor]%
+    - Corretor: [realtorName] | Captador: [captorName]
+    - Parceria Interna: [Sim/Não] [Se Sim: Nome do Corretor]
+    - Parceria Externa: [Sim/Não] [Se Sim: Imobiliária/Corretor]
+    
+    **DADOS DA GARANTIA**:
+    - Tipo: [guaranteeType]
+    - Detalhes: 
+      [Se Caução: Valor R$ ...]
+      [Se Seguro Fiança: Seguradora & Nº Apólice]
+      [Se Título Capitalização: Valor R$ ...]
+      [Se Fiador: "Ver dados dos fiadores abaixo"]
+      [Se Sem Garantia: "Nenhuma garantia informada"]
+    
+    **SEGURO INCÊNDIO** (Liste como uma tabela limpa):
+    - Tipo de Imóvel: [insuranceType]
+    - Valor Cobertura: R$ [insuranceCoverage]
+    [Liste coberturas calculadas se disponíveis: Incêndio, Perda Aluguel, etc.]
+    - Prêmio Mensal: R$ [Valor]
+    - Prêmio Anual: R$ [Valor]
+
+    **DADOS FINANCEIROS**:
+    - Aluguel: R$ [rentValue]
+    - Condomínio: R$ [condoValue]
+    - IPTU: R$ [iptuValue]
+    - Despesas de Consumo:
+      * Água: [expenseWater]
+      * Luz: [expenseElectricity]
+      * Gás: [expenseGas]
+      * IPTU (Parcela): [expenseIptu]
+      * Condomínio: [expenseCondo]
+      * Limpeza: [expenseCleaning]
+      * Outros: [expenseOther] [Se diferente de N/A, inclua: otherExpenseDescription]
+    
+    **DATAS E OBSERVAÇÕES**:
+    - Data Início Contrato: [contractStartDate - formato DD/MM/AAAA]
+    - Dia Vencimento Aluguel: Dia [rentDueDay]
+    - Índice de Reajuste: [contractReadjustment]
+    - Observações: [observations]
+    
+    **DADOS DAS PARTES** (Itere por todas as listas):
+    
+    **LOCADOR(ES)**:
+    [Para cada locador: 
+     Nome (ou Razão Social) | CPF/CNPJ: [Valor] | RG/IE: [Valor] | Estado Civil/Tipo
+     Se PJ: Liste TODOS os Representantes Legais (Nome, CPF, RG, Profissão, Estado Civil, Endereço).
+     Endereço Residencial/Empresa: [Endereço completo].
+     Email: [email] | Telefone: [phone]
+     **DADOS BANCÁRIOS**: 
+     Banco: [bankName]
      Ag: [bankAgency] | CC: [bankAccount] | PIX: [pixKey]
-     Beneficiary: [If isBeneficiarySelf is true, write "O Próprio"; ELSE write the beneficiaryName]
-     If married (or Representative is married), include Spouse info]
+     Favorecido: [Se isBeneficiarySelf for true, escreva "O Próprio"; CASO CONTRÁRIO escreva o beneficiaryName]
+     Se casado (ou Representante casado), inclua dados do Cônjuge]
     
-    LOCATÁRIO(S):
-    [For each tenant: Name/Razão Social, CPF/CNPJ, RG/IE, Type. 
-     If PJ: List Representative Name, CPF, RG.
-     Representative Address: [Full address including street, number, complement, neighborhood, city, state, cep].
-     Address. Email, Phone.
-     If married (or Representative is married), include Spouse info]
+    **LOCATÁRIO(S)**:
+    [Para cada locatário: 
+     Nome (ou Razão Social) | CPF/CNPJ: [Valor] | RG/IE: [Valor] | Profissão | Estado Civil
+     Se PJ: Liste TODOS os Representantes Legais (Nome, CPF, RG, Profissão, Estado Civil, Endereço).
+     Endereço Residencial/Empresa: [Endereço completo].
+     Email: [email] | Telefone: [phone]
+     Se casado (ou Representante casado), inclua dados do Cônjuge]
     
-    FIADOR(ES) (If applicable):
-    [For each guarantor: Name/Razão Social, CPF/CNPJ. Address. Property of Guarantee info (Matricula/Address). Spouse info.]
+    **FIADOR(ES)** (Se houver):
+    [Para cada fiador: 
+     Nome | CPF | Profissão | Estado Civil.
+     Endereço Residencial: [Endereço completo].
+     Imóvel de Garantia: [guaranteePropertyAddress] (Matrícula: [guaranteePropertyMatricula], IPTU: [guaranteePropertyIptu]).
+     Se casado, inclua dados do Cônjuge.]
+
+    **DOCUMENTAÇÃO ANEXADA** (Organizada por Pastas):
     
-    Maintain professional formatting. Use 'R$' for currency.
+    📂 **PASTA IMÓVEL**
+    [Liste os arquivos em 'propertyUploadedFiles'. Se vazio, indique "(Vazio)"]
+    
+    [Itere sobre Locadores, Locatários e Fiadores para listar seus arquivos]:
+    📂 **PASTA [TIPO]: [NOME DA PESSOA]**
+       - [Lista de 'uploadedFiles']
+       [Se houver arquivos em 'spouseUploadedFiles']:
+         ↳ 📂 **Subpasta Cônjuge ([Nome do Cônjuge])**: [Lista de 'spouseUploadedFiles']
+    
+    Mantenha a formatação profissional. Se um campo estiver vazio, indique como "Não informado".
   `;
 
   const prompt = `
-    Generate the "RESUMO LOCAÇÃO" based on this data:
+    Gere o "RESUMO LOCAÇÃO" com base nestes dados:
     
-    Data: ${JSON.stringify(data, null, 2)}
+    Dados do Contrato: ${JSON.stringify(data, null, 2)}
     
-    Calculated Insurance: ${JSON.stringify(insuranceData, null, 2)}
+    Dados Calculados do Seguro: ${JSON.stringify(insuranceData, null, 2)}
     
-    Ensure all Landlords, Tenants, and Guarantors are listed explicitly. 
-    If a person is a PJ (Pessoa Jurídica), make sure to explicitly list their "Representative" details (Name, CPF, RG, Address) next to the Company Name.
+    Certifique-se de listar todos os Locadores, Locatários e Fiadores explicitamente. 
+    Se for Pessoa Jurídica (PJ), itere sobre o array 'representatives' e liste todos os sócios.
+    Na seção de Documentação, crie uma estrutura visual de pastas (📂) agrupando os arquivos pelo nome da pessoa ou imóvel.
   `;
 
   try {
@@ -104,9 +136,9 @@ export const generateLeaseSummary = async (
       }
     });
 
-    return response.text || "No response generated.";
+    return response.text || "Nenhuma resposta gerada.";
   } catch (error) {
     console.error("Gemini API Error:", error);
-    return "Failed to generate summary via AI. Please try again.";
+    return "Falha ao gerar resumo via IA. Por favor, tente novamente.";
   }
 };

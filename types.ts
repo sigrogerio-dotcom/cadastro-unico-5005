@@ -24,7 +24,7 @@ export interface InsuranceData {
   fire: number;
   rentLoss: number;
   civilLiability: number;
-  windstormOrImpact: number; // Impacto de Veículos or Vendaval
+  windstormOrImpact: number; 
   monthlyPremium: number;
   annualPremium: number;
 }
@@ -39,6 +39,25 @@ export interface Address {
   cep: string;
 }
 
+export interface Representative {
+  id: string;
+  name: string;
+  cpf: string;
+  rg: string;
+  profession: string;
+  civilStatus: string;
+  address: Address;
+  // Spouse of Representative
+  isMarried: boolean;
+  spouseName: string;
+  spouseCpf: string;
+  spouseRg: string;
+  spouseProfession: string;
+  spousePhone: string;
+  spouseEmail: string;
+  spouseBirthDate: string;
+}
+
 export interface Person {
   id: string;
   type: PersonType | string;
@@ -47,19 +66,14 @@ export interface Person {
   phone: string;
   cpfCnpj: string;
   rgIe: string;
-  profession: string; // PF: Profissão | PJ: Ramo de Atividade (optional)
+  profession: string; // PF: Profissão | PJ: Ramo de Atividade
   civilStatus: string; // PF only
   dateOfBirth: string; // PF: Nascimento | PJ: Abertura
   
-  // PJ Specific - Representative/Partner (Sócio)
-  representativeName?: string;
-  representativeCpf?: string;
-  representativeRg?: string;
-  representativeProfession?: string;
-  representativeCivilStatus?: string;
-  representativeAddress: Address; // Structured address for partner
+  // PJ Specific - List of Representatives
+  representatives: Representative[];
 
-  // Spouse / Cônjuge (Linked to Person for PF, or Representative for PJ)
+  // Spouse / Cônjuge (For PF Only - PJ handled inside Representative)
   isMarried: boolean;
   spouseName: string;
   spouseCpf: string;
@@ -75,7 +89,7 @@ export interface Person {
   // Extras
   dependents: string;
   
-  // Landlord specific (Structured Bank Details)
+  // Landlord specific
   bankName: string;
   bankAgency: string;
   bankAccount: string;
@@ -93,6 +107,8 @@ export interface Person {
   spouseUploadedFiles: string[];
 }
 
+export type ExpenseStatus = 'Inclusa' | 'Não Aplicável' | 'A Parte';
+
 export interface LeaseState {
   // Step 1: Parties
   landlords: Person[];
@@ -100,42 +116,42 @@ export interface LeaseState {
   
   // Step 2: Negotiation & Config
   guaranteeType: GuaranteeType | string;
-  guarantors: Person[]; // Depends on guaranteeType
+  guarantors: Person[]; 
   
-  // Specific Guarantee Fields
-  cautionValue?: number; // For Caução
-  insuranceCompany?: string; // For Seguro Fiança
-  insurancePolicy?: string; // For Seguro Fiança
-  capitalizationValue?: number; // For Título de Capitalização
+  cautionValue?: number; 
+  insuranceCompany?: string; 
+  insurancePolicy?: string; 
+  capitalizationValue?: number; 
 
   // Brokerage / Admin
-  realtorName: string; // Corretor
-  captorName: string; // Captador
+  realtorName: string; 
+  captorName: string; 
   partnershipInternal: boolean;
-  partnershipInternalName: string; // Name of internal partner
+  partnershipInternalName: string; 
   partnershipExternal: boolean;
-  partnershipExternalName: string; // Name of external partner/agency
+  partnershipExternalName: string; 
   adminFee: number;
   declaresIR: boolean;
   
   // Step 3: Financials & Insurance
-  propertyAddress: Address; // Changed from string to Address
+  propertyAddress: Address; 
   rentValue: number;
   condoValue: number;
   iptuValue: number;
   
-  // Contract Dates
+  // Contract Dates & Adjustments
   contractStartDate: string;
   rentDueDay: number;
+  contractReadjustment: string; // New Field: IPCA, IGPM, etc.
   
-  // Utilities included in rent?
-  includeWater: boolean;
-  includeElectricity: boolean;
-  includeGas: boolean;
-  includeIptuInRent: boolean;
-  includeCondo: boolean;
-  includeCleaning: boolean;
-  includeOther: boolean;
+  // Utilities Status
+  expenseWater: ExpenseStatus;
+  expenseElectricity: ExpenseStatus;
+  expenseGas: ExpenseStatus;
+  expenseIptu: ExpenseStatus;
+  expenseCondo: ExpenseStatus;
+  expenseCleaning: ExpenseStatus;
+  expenseOther: ExpenseStatus;
   otherExpenseDescription: string;
   
   insuranceType: PropertyType | string;
@@ -143,9 +159,7 @@ export interface LeaseState {
   
   observations: string;
   
-  // Files (General/Legacy)
-  uploadedFiles: string[];
-  
-  // Property Specific Docs
+  // Files
+  uploadedFiles: string[]; // General (Legacy)
   propertyUploadedFiles: string[];
 }

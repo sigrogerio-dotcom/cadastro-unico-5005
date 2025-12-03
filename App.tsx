@@ -1,7 +1,7 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
-  PersonType, GuaranteeType, PropertyType, LeaseState, InsuranceData, Person 
+  PersonType, GuaranteeType, PropertyType, LeaseState, InsuranceData, Person, ExpenseStatus, Representative 
 } from './types';
 import { INSURANCE_TABLE } from './constants';
 import { PersonForm } from './components/PersonForm';
@@ -9,8 +9,20 @@ import { DocumentChecklistModal } from './components/DocumentChecklistModal';
 import { generateLeaseSummary } from './services/geminiService';
 import { fetchAddressByCep } from './services/cepService';
 import { 
-  Building, User, FileCheck, Calculator, ArrowRight, ArrowLeft, Loader2, Plus, Users, MapPin, CalendarDays, FileText, Paperclip, Upload
+  Building, User, FileCheck, Calculator, ArrowRight, ArrowLeft, Loader2, Plus, Users, MapPin, CalendarDays, FileText, Paperclip, Upload, Printer, Trash2
 } from 'lucide-react';
+
+const createEmptyRepresentative = (): Representative => ({
+  id: crypto.randomUUID(),
+  name: '',
+  cpf: '',
+  rg: '',
+  profession: '',
+  civilStatus: '',
+  address: { street: '', number: '', complement: '', neighborhood: '', city: '', state: '', cep: '' },
+  isMarried: false,
+  spouseName: '', spouseCpf: '', spouseRg: '', spouseProfession: '', spousePhone: '', spouseEmail: '', spouseBirthDate: ''
+});
 
 const createEmptyPerson = (type: PersonType | string = PersonType.PF): Person => ({
   id: crypto.randomUUID(),
@@ -24,21 +36,8 @@ const createEmptyPerson = (type: PersonType | string = PersonType.PF): Person =>
   civilStatus: '',
   dateOfBirth: '',
   
-  // PJ Representative
-  representativeName: '',
-  representativeCpf: '',
-  representativeRg: '',
-  representativeProfession: '',
-  representativeCivilStatus: '',
-  representativeAddress: {
-    street: '',
-    number: '',
-    complement: '',
-    neighborhood: '',
-    city: '',
-    state: '',
-    cep: ''
-  },
+  // PJ Representatives List
+  representatives: [createEmptyRepresentative()],
 
   isMarried: false,
   spouseName: '',
@@ -101,14 +100,18 @@ const INITIAL_STATE: LeaseState = {
   iptuValue: 0,
   contractStartDate: '',
   rentDueDay: 0,
-  includeWater: false,
-  includeElectricity: false,
-  includeGas: false,
-  includeIptuInRent: false,
-  includeCondo: false,
-  includeCleaning: false,
-  includeOther: false,
+  contractReadjustment: '', 
+  
+  // Expenses defaults
+  expenseWater: 'A Parte',
+  expenseElectricity: 'A Parte',
+  expenseGas: 'A Parte',
+  expenseIptu: 'A Parte',
+  expenseCondo: 'A Parte',
+  expenseCleaning: 'Não Aplicável',
+  expenseOther: 'Não Aplicável',
   otherExpenseDescription: '',
+  
   insuranceType: '',
   insuranceCoverage: '',
   observations: '',
@@ -120,6 +123,42 @@ const INITIAL_STATE: LeaseState = {
   capitalizationValue: 0
 };
 
+// Simple formatter component to handle bold text (**text**)
+const FormattedSummary: React.FC<{ text: string, id: string }> = ({ text, id }) => {
+  if (!text) return null;
+  
+  const lines = text.split('\n');
+  
+  return (
+    <div id={id} className="font-mono text-sm text-gray-800 bg-white p-8 rounded border-l-4 border-l-brand-blue overflow-x-auto whitespace-pre-wrap border border-brand-blue shadow-sm">
+      {lines.map((line, i) => {
+        const parts = line.split(/(\*\*.*?\*\*)/g);
+        return (
+          <div key={i} className="min-h-[1.2em]">
+            {parts.map((part, j) => {
+              if (part.startsWith('**') && part.endsWith('**')) {
+                return <strong key={j} className="text-brand-blue font-bold">{part.slice(2, -2)}</strong>;
+              }
+              return <span key={j}>{part}</span>;
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// Helper for Currency
+const formatCurrency = (value: number | undefined) => {
+  if (value === undefined || value === null) return '';
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+};
+
+const parseCurrency = (value: string) => {
+  const digits = value.replace(/\D/g, "");
+  return Number(digits) / 100;
+};
+
 function App() {
   const [step, setStep] = useState(1);
   const [data, setData] = useState<LeaseState>(INITIAL_STATE);
@@ -128,25 +167,48 @@ function App() {
   const [loadingPropertyCep, setLoadingPropertyCep] = useState(false);
   const [showPropertyDocsModal, setShowPropertyDocsModal] = useState(false);
   
-  // State to track expanded accordion items
   const [expandedPersonId, setExpandedPersonId] = useState<string | null>(INITIAL_STATE.tenants[0].id);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
     const checked = (e.target as HTMLInputElement).checked;
     
+    let finalValue: string | boolean | number = value;
+
+    if (type === 'checkbox') {
+      finalValue = checked;
+    } else if (type === 'radio') {
+      finalValue = value;
+    } else if (type === 'text' || type === 'textarea') {
+      if (name.toLowerCase().includes('email')) {
+        finalValue = value.toLowerCase();
+      } else {
+        finalValue = value.toUpperCase();
+      }
+    }
+
     if (name.startsWith('propertyAddress.')) {
       const field = name.split('.')[1];
       setData(prev => ({
         ...prev,
-        propertyAddress: { ...prev.propertyAddress, [field]: value }
+        propertyAddress: { ...prev.propertyAddress, [field]: finalValue }
       }));
     } else {
       setData(prev => ({
         ...prev,
-        [name]: type === 'checkbox' ? checked : value
+        [name]: finalValue
       }));
     }
+  };
+
+  const handleCurrencyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    const numericValue = parseCurrency(value);
+    
+    setData(prev => ({
+      ...prev,
+      [name]: numericValue
+    }));
   };
 
   const handlePropertyCepBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
@@ -162,10 +224,10 @@ function App() {
           ...prev,
           propertyAddress: {
             ...prev.propertyAddress,
-            street: addrData.logradouro,
-            neighborhood: addrData.bairro,
-            city: addrData.localidade,
-            state: addrData.uf,
+            street: addrData.logradouro.toUpperCase(),
+            neighborhood: addrData.bairro.toUpperCase(),
+            city: addrData.localidade.toUpperCase(),
+            state: addrData.uf.toUpperCase(),
             cep: cep
           }
         }));
@@ -197,10 +259,31 @@ function App() {
       ...prev,
       [listKey]: prev[listKey].map(p => {
         if (p.id !== id) return p;
-        // Handle address updates separately if passed as whole object, otherwise rely on field paths handled in PersonForm
         if (field === 'address') return { ...p, address: value };
-        if (field === 'representativeAddress') return { ...p, representativeAddress: value };
+        // If field is 'representatives', value is the entire new array
+        if (field === 'representatives') return { ...p, representatives: value };
         return { ...p, [field]: value };
+      })
+    }));
+  };
+
+  const handleAddRepresentative = (listKey: 'landlords' | 'tenants' | 'guarantors', personId: string) => {
+    const newRep = createEmptyRepresentative();
+    setData(prev => ({
+      ...prev,
+      [listKey]: prev[listKey].map(p => {
+        if (p.id !== personId) return p;
+        return { ...p, representatives: [...p.representatives, newRep] };
+      })
+    }));
+  };
+
+  const handleRemoveRepresentative = (listKey: 'landlords' | 'tenants' | 'guarantors', personId: string, repId: string) => {
+     setData(prev => ({
+      ...prev,
+      [listKey]: prev[listKey].map(p => {
+        if (p.id !== personId) return p;
+        return { ...p, representatives: p.representatives.filter(r => r.id !== repId) };
       })
     }));
   };
@@ -227,12 +310,38 @@ function App() {
     }));
   };
 
+  const handleRemovePersonFile = (
+    listKey: 'landlords' | 'tenants' | 'guarantors',
+    id: string,
+    fileName: string,
+    isSpouse: boolean
+  ) => {
+    setData(prev => ({
+      ...prev,
+      [listKey]: prev[listKey].map(p => {
+        if (p.id !== id) return p;
+        if (isSpouse) {
+          return { ...p, spouseUploadedFiles: p.spouseUploadedFiles.filter(f => f !== fileName) };
+        } else {
+          return { ...p, uploadedFiles: p.uploadedFiles.filter(f => f !== fileName) };
+        }
+      })
+    }));
+  };
+
   const handlePropertyFileUpload = (files: FileList | null) => {
     if (!files) return;
     const fileNames = Array.from(files).map((f: File) => f.name);
     setData(prev => ({
       ...prev,
       propertyUploadedFiles: [...prev.propertyUploadedFiles, ...fileNames]
+    }));
+  };
+
+  const handleRemovePropertyFile = (fileName: string) => {
+    setData(prev => ({
+      ...prev,
+      propertyUploadedFiles: prev.propertyUploadedFiles.filter(f => f !== fileName)
     }));
   };
 
@@ -249,10 +358,65 @@ function App() {
     setIsGenerating(false);
   };
 
+  const handlePrint = () => {
+    const summaryElement = document.getElementById('generated-summary');
+    if (!summaryElement) return;
+
+    const printWindow = window.open('', '', 'width=900,height=700');
+    if (printWindow) {
+      // Create a simplified version of the summary for printing (converting custom markdown to HTML)
+      let content = generatedSummary
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold
+        .replace(/\n/g, '<br>'); // New lines
+
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Resumo Locação - 5005 Imóveis</title>
+            <style>
+              body { font-family: 'Inter', sans-serif; padding: 40px; color: #1e293b; }
+              h1 { color: #002F6C; font-size: 24px; border-bottom: 2px solid #E30613; padding-bottom: 10px; margin-bottom: 20px; }
+              strong { color: #002F6C; }
+              .content { font-family: monospace; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+            </style>
+          </head>
+          <body>
+            <h1>5005 IMÓVEIS - RESUMO EXECUTIVO</h1>
+            <div class="content">${content}</div>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+    }
+  };
+
   const copyToClipboard = () => {
     navigator.clipboard.writeText(generatedSummary);
     alert('Resumo copiado!');
   };
+
+  const ExpenseRow = ({ label, name, value }: { label: string, name: keyof LeaseState, value: ExpenseStatus }) => (
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between py-2 border-b border-brand-blue/20 last:border-0 gap-2">
+      <span className="text-sm font-bold text-gray-700">{label}</span>
+      <div className="flex items-center gap-3">
+        {['Inclusa', 'Não Aplicável', 'A Parte'].map((option) => (
+          <label key={option} className="flex items-center gap-1.5 cursor-pointer">
+             <input 
+               type="radio" 
+               name={name} 
+               value={option}
+               checked={value === option}
+               onChange={handleInputChange}
+               className="w-4 h-4 text-brand-blue border-brand-blue focus:ring-brand-blue"
+             />
+             <span className="text-xs font-medium text-gray-600">{option}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
 
   const StepIndicator = () => (
     <div className="flex justify-center mb-8">
@@ -290,7 +454,7 @@ function App() {
         {/* STEP 1: PARTIES (LOCADORES E LOCATÁRIOS) */}
         {step === 1 && (
           <div className="space-y-8 animate-fade-in">
-             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-brand-blue">
+             <div className="bg-white p-6 rounded-lg shadow-sm border border-l-4 border-brand-blue border-gray-200">
                 <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                    <Users className="w-5 h-5 text-brand-red" />
                    Dados das Partes
@@ -308,7 +472,7 @@ function App() {
                          <div className="w-1 h-6 bg-brand-red rounded-full"></div>
                          Locadores (Proprietários)
                       </h3>
-                      <button onClick={() => addPerson('landlords')} className="text-sm bg-brand-blue text-white px-4 py-1.5 rounded-full flex items-center gap-1 hover:bg-blue-900 transition-colors shadow-sm">
+                      <button onClick={() => addPerson('landlords')} className="text-sm bg-brand-blue text-white px-4 py-1.5 rounded-full flex items-center gap-1 hover:bg-blue-900 transition-colors shadow-sm border border-brand-blue">
                          <Plus className="w-4 h-4" /> Adicionar
                       </button>
                    </div>
@@ -320,6 +484,9 @@ function App() {
                         onUpdate={(id, field, val) => updatePerson('landlords', id, field, val)} 
                         onRemove={(id) => removePerson('landlords', id)}
                         onUpload={(id, files, isSpouse) => handlePersonFileUpload('landlords', id, files, isSpouse)}
+                        onRemoveFile={(id, file, isSpouse) => handleRemovePersonFile('landlords', id, file, isSpouse)}
+                        onAddRepresentative={(id) => handleAddRepresentative('landlords', id)}
+                        onRemoveRepresentative={(id, repId) => handleRemoveRepresentative('landlords', id, repId)}
                       />
                    ))}
                 </div>
@@ -331,7 +498,7 @@ function App() {
                          <div className="w-1 h-6 bg-brand-blue rounded-full"></div>
                          Locatários (Inquilinos)
                       </h3>
-                      <button onClick={() => addPerson('tenants')} className="text-sm bg-brand-blue text-white px-4 py-1.5 rounded-full flex items-center gap-1 hover:bg-blue-900 transition-colors shadow-sm">
+                      <button onClick={() => addPerson('tenants')} className="text-sm bg-brand-blue text-white px-4 py-1.5 rounded-full flex items-center gap-1 hover:bg-blue-900 transition-colors shadow-sm border border-brand-blue">
                          <Plus className="w-4 h-4" /> Adicionar
                       </button>
                    </div>
@@ -343,6 +510,9 @@ function App() {
                         onUpdate={(id, field, val) => updatePerson('tenants', id, field, val)} 
                         onRemove={(id) => removePerson('tenants', id)}
                         onUpload={(id, files, isSpouse) => handlePersonFileUpload('tenants', id, files, isSpouse)}
+                        onRemoveFile={(id, file, isSpouse) => handleRemovePersonFile('tenants', id, file, isSpouse)}
+                        onAddRepresentative={(id) => handleAddRepresentative('tenants', id)}
+                        onRemoveRepresentative={(id, repId) => handleRemoveRepresentative('tenants', id, repId)}
                       />
                    ))}
                 </div>
@@ -350,11 +520,11 @@ function App() {
           </div>
         )}
 
-        {/* STEP 2: NEGOTIATION (BROKERAGE, GUARANTEE, DOCUMENTS) */}
+        {/* STEP 2: NEGOTIATION */}
         {step === 2 && (
           <div className="space-y-8 animate-fade-in">
             
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-brand-blue h-full">
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-l-4 border-brand-blue h-full border-gray-200">
               <h2 className="text-lg font-bold mb-4 text-brand-blue flex items-center gap-2">
                 <FileCheck className="w-5 h-5 text-brand-red" />
                 Dados da Negociação
@@ -366,7 +536,7 @@ function App() {
                     name="guaranteeType" 
                     value={data.guaranteeType} 
                     onChange={handleInputChange}
-                    className="w-full border-gray-300 border rounded-md p-2 focus:ring-2 focus:ring-brand-blue outline-none bg-gray-50 text-brand-blue"
+                    className="w-full border-brand-blue border rounded-md p-2 focus:ring-2 focus:ring-brand-blue outline-none bg-gray-50 text-brand-blue"
                   >
                     <option value="">Selecione...</option>
                     {Object.values(GuaranteeType).map(type => (
@@ -375,16 +545,15 @@ function App() {
                   </select>
                 </div>
 
-                {/* Conditional Inputs based on Guarantee Type */}
                 {data.guaranteeType === GuaranteeType.CAUCAO && (
                   <div className="animate-fade-in bg-gray-50 p-3 rounded border border-gray-200">
                       <label className="block text-sm font-medium text-gray-700 mb-1">Valor do Caução (R$)</label>
                       <input 
-                        type="number" 
+                        type="text" 
                         name="cautionValue" 
-                        value={data.cautionValue} 
-                        onChange={handleInputChange} 
-                        className="w-full border p-2 rounded focus:border-brand-blue outline-none bg-white text-brand-blue"
+                        value={formatCurrency(data.cautionValue)} 
+                        onChange={handleCurrencyChange} 
+                        className="w-full border border-brand-blue p-2 rounded focus:border-brand-blue outline-none bg-white text-brand-blue"
                       />
                   </div>
                 )}
@@ -397,7 +566,7 @@ function App() {
                           name="insuranceCompany" 
                           value={data.insuranceCompany} 
                           onChange={handleInputChange} 
-                          className="w-full border p-2 rounded focus:border-brand-blue outline-none bg-white text-brand-blue"
+                          className="w-full border border-brand-blue p-2 rounded focus:border-brand-blue outline-none bg-white text-brand-blue"
                         />
                       </div>
                       <div>
@@ -406,7 +575,7 @@ function App() {
                           name="insurancePolicy" 
                           value={data.insurancePolicy} 
                           onChange={handleInputChange} 
-                          className="w-full border p-2 rounded focus:border-brand-blue outline-none bg-white text-brand-blue"
+                          className="w-full border border-brand-blue p-2 rounded focus:border-brand-blue outline-none bg-white text-brand-blue"
                         />
                       </div>
                     </div>
@@ -416,11 +585,11 @@ function App() {
                   <div className="animate-fade-in bg-gray-50 p-3 rounded border border-gray-200">
                       <label className="block text-sm font-medium text-gray-700 mb-1">Valor do Título (R$)</label>
                       <input 
-                        type="number" 
+                        type="text" 
                         name="capitalizationValue" 
-                        value={data.capitalizationValue} 
-                        onChange={handleInputChange} 
-                        className="w-full border p-2 rounded focus:border-brand-blue outline-none bg-white text-brand-blue"
+                        value={formatCurrency(data.capitalizationValue)} 
+                        onChange={handleCurrencyChange} 
+                        className="w-full border border-brand-blue p-2 rounded focus:border-brand-blue outline-none bg-white text-brand-blue"
                       />
                   </div>
                 )}
@@ -441,7 +610,7 @@ function App() {
                         <div className="w-1 h-6 bg-yellow-500 rounded-full"></div>
                         Fiadores
                      </h3>
-                     <button onClick={() => addPerson('guarantors')} className="text-sm bg-brand-blue text-white px-4 py-1.5 rounded-full flex items-center gap-1 hover:bg-blue-900 transition-colors shadow-sm">
+                     <button onClick={() => addPerson('guarantors')} className="text-sm bg-brand-blue text-white px-4 py-1.5 rounded-full flex items-center gap-1 hover:bg-blue-900 transition-colors shadow-sm border border-brand-blue">
                         <Plus className="w-4 h-4" /> Adicionar
                      </button>
                   </div>
@@ -458,13 +627,16 @@ function App() {
                        onUpdate={(id, field, val) => updatePerson('guarantors', id, field, val)} 
                        onRemove={(id) => removePerson('guarantors', id)} 
                        onUpload={(id, files, isSpouse) => handlePersonFileUpload('guarantors', id, files, isSpouse)}
+                       onRemoveFile={(id, file, isSpouse) => handleRemovePersonFile('guarantors', id, file, isSpouse)}
+                       onAddRepresentative={(id) => handleAddRepresentative('guarantors', id)}
+                       onRemoveRepresentative={(id, repId) => handleRemoveRepresentative('guarantors', id, repId)}
                      />
                   ))}
                </div>
             )}
 
             {/* Brokerage Info */}
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 border-t-4 border-t-brand-blue">
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-t-4 border-t-brand-blue border-gray-200">
                 <h2 className="text-lg font-bold mb-4 text-brand-blue flex items-center gap-2">
                   <User className="w-5 h-5 text-brand-red" />
                   Administração & Parcerias
@@ -472,17 +644,17 @@ function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                    <div className="space-y-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase">Corretor (Atendimento)</label>
-                      <input name="realtorName" value={data.realtorName} onChange={handleInputChange} className="border p-2 rounded w-full focus:border-brand-blue outline-none bg-white text-brand-blue" />
+                      <input name="realtorName" value={data.realtorName} onChange={handleInputChange} className="border border-brand-blue p-2 rounded w-full focus:border-brand-blue outline-none bg-white text-brand-blue" />
                    </div>
                    <div className="space-y-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase">Captador (Imóvel)</label>
-                      <input name="captorName" value={data.captorName} onChange={handleInputChange} className="border p-2 rounded w-full focus:border-brand-blue outline-none bg-white text-brand-blue" />
+                      <input name="captorName" value={data.captorName} onChange={handleInputChange} className="border border-brand-blue p-2 rounded w-full focus:border-brand-blue outline-none bg-white text-brand-blue" />
                    </div>
                    
                    <div className="space-y-3 bg-gray-50 p-3 rounded border border-gray-100 md:col-span-2">
                       <div className="flex flex-col gap-2">
                          <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-700">
-                            <input type="checkbox" name="partnershipInternal" checked={data.partnershipInternal} onChange={handleInputChange} className="rounded text-brand-blue focus:ring-brand-blue" />
+                            <input type="checkbox" name="partnershipInternal" checked={data.partnershipInternal} onChange={handleInputChange} className="rounded border-brand-blue text-brand-blue focus:ring-brand-blue" />
                             Parceria Interna
                          </label>
                          {data.partnershipInternal && (
@@ -491,14 +663,14 @@ function App() {
                               name="partnershipInternalName" 
                               value={data.partnershipInternalName} 
                               onChange={handleInputChange} 
-                              className="ml-6 border p-2 rounded text-sm w-11/12 focus:border-brand-blue outline-none bg-white text-brand-blue animate-fade-in" 
+                              className="ml-6 border border-brand-blue p-2 rounded text-sm w-11/12 focus:border-brand-blue outline-none bg-white text-brand-blue animate-fade-in" 
                             />
                          )}
                       </div>
 
                       <div className="flex flex-col gap-2 border-t border-gray-200 pt-2">
                          <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-700">
-                            <input type="checkbox" name="partnershipExternal" checked={data.partnershipExternal} onChange={handleInputChange} className="rounded text-brand-blue focus:ring-brand-blue" />
+                            <input type="checkbox" name="partnershipExternal" checked={data.partnershipExternal} onChange={handleInputChange} className="rounded border-brand-blue text-brand-blue focus:ring-brand-blue" />
                             Parceria Externa
                          </label>
                          {data.partnershipExternal && (
@@ -507,7 +679,7 @@ function App() {
                               name="partnershipExternalName" 
                               value={data.partnershipExternalName} 
                               onChange={handleInputChange} 
-                              className="ml-6 border p-2 rounded text-sm w-11/12 focus:border-brand-blue outline-none bg-white text-brand-blue animate-fade-in" 
+                              className="ml-6 border border-brand-blue p-2 rounded text-sm w-11/12 focus:border-brand-blue outline-none bg-white text-brand-blue animate-fade-in" 
                             />
                          )}
                       </div>
@@ -516,10 +688,10 @@ function App() {
                    <div className="flex gap-4 items-center bg-gray-50 p-2 rounded md:col-span-2">
                       <div className="flex items-center gap-2">
                         <label className="text-sm font-medium text-gray-700">Taxa Adm (%):</label>
-                        <input type="number" name="adminFee" value={data.adminFee} onChange={handleInputChange} className="border p-1 rounded w-16 text-center bg-white text-brand-blue" />
+                        <input type="number" name="adminFee" value={data.adminFee} onChange={handleInputChange} className="border border-brand-blue p-1 rounded w-16 text-center bg-white text-brand-blue" />
                       </div>
                       <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-700 border-l pl-4 border-gray-300">
-                        <input type="checkbox" name="declaresIR" checked={data.declaresIR} onChange={handleInputChange} className="rounded text-brand-blue" />
+                        <input type="checkbox" name="declaresIR" checked={data.declaresIR} onChange={handleInputChange} className="rounded border-brand-blue text-brand-blue" />
                         Declarar no IR
                       </label>
                    </div>
@@ -534,7 +706,7 @@ function App() {
           <div className="space-y-6 animate-fade-in">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               
-              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 h-fit border-t-4 border-t-brand-blue">
+              <div className="bg-white p-6 rounded-lg shadow-sm border border-t-4 border-t-brand-blue h-fit border-gray-200">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-lg font-bold text-brand-blue flex items-center gap-2">
                     <Calculator className="w-5 h-5 text-brand-red" /> Dados do Imovel Locado
@@ -560,27 +732,27 @@ function App() {
                           value={data.propertyAddress.cep} 
                           onChange={handleInputChange}
                           onBlur={handlePropertyCepBlur}
-                          className="w-full border p-2 rounded text-sm focus:border-brand-blue outline-none bg-white text-brand-blue" 
+                          className="w-full border border-brand-blue p-2 rounded text-sm focus:border-brand-blue outline-none bg-white text-brand-blue" 
                         />
                         {loadingPropertyCep && <Loader2 className="w-4 h-4 absolute right-2 top-2.5 animate-spin text-brand-blue" />}
                       </div>
                       <div className="md:col-span-3">
-                        <input placeholder="Rua" name="propertyAddress.street" value={data.propertyAddress.street} onChange={handleInputChange} className="w-full border p-2 rounded text-sm focus:border-brand-blue outline-none bg-white text-brand-blue" />
+                        <input placeholder="Rua" name="propertyAddress.street" value={data.propertyAddress.street} onChange={handleInputChange} className="w-full border border-brand-blue p-2 rounded text-sm focus:border-brand-blue outline-none bg-white text-brand-blue" />
                       </div>
                       <div>
-                        <input placeholder="Número" name="propertyAddress.number" value={data.propertyAddress.number} onChange={handleInputChange} className="w-full border p-2 rounded text-sm focus:border-brand-blue outline-none bg-white text-brand-blue" />
+                        <input placeholder="Número" name="propertyAddress.number" value={data.propertyAddress.number} onChange={handleInputChange} className="w-full border border-brand-blue p-2 rounded text-sm focus:border-brand-blue outline-none bg-white text-brand-blue" />
                       </div>
                       <div>
-                        <input placeholder="Complemento" name="propertyAddress.complement" value={data.propertyAddress.complement} onChange={handleInputChange} className="w-full border p-2 rounded text-sm focus:border-brand-blue outline-none bg-white text-brand-blue" />
+                        <input placeholder="Complemento" name="propertyAddress.complement" value={data.propertyAddress.complement} onChange={handleInputChange} className="w-full border border-brand-blue p-2 rounded text-sm focus:border-brand-blue outline-none bg-white text-brand-blue" />
                       </div>
                       <div>
-                        <input placeholder="Bairro" name="propertyAddress.neighborhood" value={data.propertyAddress.neighborhood} onChange={handleInputChange} className="w-full border p-2 rounded text-sm focus:border-brand-blue outline-none bg-white text-brand-blue" />
+                        <input placeholder="Bairro" name="propertyAddress.neighborhood" value={data.propertyAddress.neighborhood} onChange={handleInputChange} className="w-full border border-brand-blue p-2 rounded text-sm focus:border-brand-blue outline-none bg-white text-brand-blue" />
                       </div>
                       <div>
-                        <input placeholder="Cidade" name="propertyAddress.city" value={data.propertyAddress.city} onChange={handleInputChange} className="w-full border p-2 rounded text-sm focus:border-brand-blue outline-none bg-white text-brand-blue" />
+                        <input placeholder="Cidade" name="propertyAddress.city" value={data.propertyAddress.city} onChange={handleInputChange} className="w-full border border-brand-blue p-2 rounded text-sm focus:border-brand-blue outline-none bg-white text-brand-blue" />
                       </div>
                       <div>
-                        <input placeholder="UF" name="propertyAddress.state" value={data.propertyAddress.state} onChange={handleInputChange} className="w-full border p-2 rounded text-sm focus:border-brand-blue outline-none bg-white text-brand-blue" />
+                        <input placeholder="UF" name="propertyAddress.state" value={data.propertyAddress.state} onChange={handleInputChange} className="w-full border border-brand-blue p-2 rounded text-sm focus:border-brand-blue outline-none bg-white text-brand-blue" />
                       </div>
                     </div>
                   </div>
@@ -590,51 +762,99 @@ function App() {
                        <label className="block text-sm text-gray-600 mb-1 font-semibold flex items-center gap-1">
                           <CalendarDays className="w-3.5 h-3.5 text-brand-red" /> Início do Contrato
                        </label>
-                       <input type="date" name="contractStartDate" value={data.contractStartDate} onChange={handleInputChange} className="w-full border p-2 rounded-md focus:border-brand-blue outline-none bg-white text-brand-blue text-sm" />
+                       <input type="date" name="contractStartDate" value={data.contractStartDate} onChange={handleInputChange} className="w-full border border-brand-blue p-2 rounded-md focus:border-brand-blue outline-none bg-white text-brand-blue text-sm" />
                     </div>
                     <div>
                        <label className="block text-sm text-gray-600 mb-1 font-semibold flex items-center gap-1">
                           <CalendarDays className="w-3.5 h-3.5 text-brand-red" /> Dia do Vencimento
                        </label>
-                       <input type="number" min="1" max="31" placeholder="Dia (ex: 5)" name="rentDueDay" value={data.rentDueDay || ''} onChange={handleInputChange} className="w-full border p-2 rounded-md focus:border-brand-blue outline-none bg-white text-brand-blue text-sm" />
+                       <input type="number" min="1" max="31" placeholder="Dia (ex: 5)" name="rentDueDay" value={data.rentDueDay || ''} onChange={handleInputChange} className="w-full border border-brand-blue p-2 rounded-md focus:border-brand-blue outline-none bg-white text-brand-blue text-sm" />
                     </div>
+                  </div>
+
+                  {/* Contract Readjustment */}
+                  <div className="bg-gray-50 p-2 rounded border border-gray-100">
+                     <label className="block text-sm text-gray-600 mb-1 font-semibold">Índice de Reajuste do Contrato</label>
+                     <select name="contractReadjustment" value={data.contractReadjustment} onChange={handleInputChange} className="w-full border border-brand-blue p-2 rounded focus:border-brand-blue outline-none bg-white text-brand-blue text-sm">
+                       <option value="">Selecione...</option>
+                       <option value="IGPM">IGPM (FGV)</option>
+                       <option value="IPCA">IPCA (IBGE)</option>
+                       <option value="IVAR">IVAR (FGV)</option>
+                       <option value="INPC">INPC</option>
+                       <option value="IPC">IPC</option>
+                     </select>
                   </div>
 
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                        <label className="block text-sm text-gray-600 mb-1 font-semibold">Aluguel (R$)</label>
-                       <input type="number" name="rentValue" value={data.rentValue} onChange={handleInputChange} className="w-full border p-2 rounded-md focus:border-brand-blue outline-none bg-white text-brand-blue" />
+                       <input 
+                         type="text" 
+                         name="rentValue" 
+                         value={formatCurrency(data.rentValue)} 
+                         onChange={handleCurrencyChange} 
+                         className="w-full border border-brand-blue p-2 rounded-md focus:border-brand-blue outline-none bg-white text-brand-blue" 
+                       />
                     </div>
                     <div>
                        <label className="block text-sm text-gray-600 mb-1 font-semibold">Condomínio</label>
-                       <input type="number" name="condoValue" value={data.condoValue} onChange={handleInputChange} className="w-full border p-2 rounded-md focus:border-brand-blue outline-none bg-white text-brand-blue" />
+                       <input 
+                         type="text" 
+                         name="condoValue" 
+                         value={formatCurrency(data.condoValue)} 
+                         onChange={handleCurrencyChange} 
+                         className="w-full border border-brand-blue p-2 rounded-md focus:border-brand-blue outline-none bg-white text-brand-blue" 
+                       />
                     </div>
                     <div>
                        <label className="block text-sm text-gray-600 mb-1 font-semibold">IPTU</label>
-                       <input type="number" name="iptuValue" value={data.iptuValue} onChange={handleInputChange} className="w-full border p-2 rounded-md focus:border-brand-blue outline-none bg-white text-brand-blue" />
+                       <input 
+                         type="text" 
+                         name="iptuValue" 
+                         value={formatCurrency(data.iptuValue)} 
+                         onChange={handleCurrencyChange} 
+                         className="w-full border border-brand-blue p-2 rounded-md focus:border-brand-blue outline-none bg-white text-brand-blue" 
+                       />
                     </div>
                   </div>
                   
                   <div className="bg-gray-50 p-4 rounded border border-gray-200">
-                    <label className="block text-xs font-bold text-gray-500 mb-3 uppercase">Despesas Inclusas no Valor do Aluguel</label>
-                    <div className="grid grid-cols-2 gap-3">
-                       <label className="flex items-center gap-2 text-sm text-gray-700 font-medium"><input type="checkbox" name="includeWater" checked={data.includeWater} onChange={handleInputChange} className="text-brand-blue rounded" /> Água</label>
-                       <label className="flex items-center gap-2 text-sm text-gray-700 font-medium"><input type="checkbox" name="includeElectricity" checked={data.includeElectricity} onChange={handleInputChange} className="text-brand-blue rounded" /> Luz</label>
-                       <label className="flex items-center gap-2 text-sm text-gray-700 font-medium"><input type="checkbox" name="includeGas" checked={data.includeGas} onChange={handleInputChange} className="text-brand-blue rounded" /> Gás</label>
-                       <label className="flex items-center gap-2 text-sm text-gray-700 font-medium"><input type="checkbox" name="includeIptuInRent" checked={data.includeIptuInRent} onChange={handleInputChange} className="text-brand-blue rounded" /> IPTU</label>
-                       <label className="flex items-center gap-2 text-sm text-gray-700 font-medium"><input type="checkbox" name="includeCondo" checked={data.includeCondo} onChange={handleInputChange} className="text-brand-blue rounded" /> Condomínio</label>
-                       <label className="flex items-center gap-2 text-sm text-gray-700 font-medium"><input type="checkbox" name="includeCleaning" checked={data.includeCleaning} onChange={handleInputChange} className="text-brand-blue rounded" /> Limpeza</label>
-                       <div className="col-span-2">
-                           <label className="flex items-center gap-2 text-sm text-gray-700 font-medium mb-2">
-                             <input type="checkbox" name="includeOther" checked={data.includeOther} onChange={handleInputChange} className="text-brand-blue rounded" /> Outros
-                           </label>
-                           {data.includeOther && (
+                    <label className="block text-xs font-bold text-gray-500 mb-3 uppercase">DESPESAS DE CONSUMO</label>
+                    <div className="flex flex-col gap-2">
+                       <ExpenseRow label="Água" name="expenseWater" value={data.expenseWater} />
+                       <ExpenseRow label="Luz" name="expenseElectricity" value={data.expenseElectricity} />
+                       <ExpenseRow label="Gás" name="expenseGas" value={data.expenseGas} />
+                       <ExpenseRow label="IPTU" name="expenseIptu" value={data.expenseIptu} />
+                       <ExpenseRow label="Condomínio" name="expenseCondo" value={data.expenseCondo} />
+                       <ExpenseRow label="Limpeza" name="expenseCleaning" value={data.expenseCleaning} />
+                       
+                       <div className="flex flex-col border-b border-gray-100 last:border-0 py-2">
+                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                             <span className="text-sm font-bold text-gray-700">Outros</span>
+                             <div className="flex items-center gap-3">
+                                {['Inclusa', 'Não Aplicável', 'A Parte'].map((option) => (
+                                  <label key={option} className="flex items-center gap-1.5 cursor-pointer">
+                                     <input 
+                                       type="radio" 
+                                       name="expenseOther" 
+                                       value={option}
+                                       checked={data.expenseOther === option}
+                                       onChange={handleInputChange}
+                                       className="w-4 h-4 text-brand-blue border-brand-blue focus:ring-brand-blue"
+                                     />
+                                     <span className="text-xs font-medium text-gray-600">{option}</span>
+                                  </label>
+                                ))}
+                             </div>
+                           </div>
+                           
+                           {data.expenseOther !== 'Não Aplicável' && (
                              <input 
                                name="otherExpenseDescription" 
                                value={data.otherExpenseDescription} 
                                onChange={handleInputChange} 
                                placeholder="Especifique a despesa..." 
-                               className="w-full border p-2 rounded-md focus:border-brand-blue outline-none bg-white text-brand-blue text-sm" 
+                               className="w-full border border-brand-blue p-2 rounded-md focus:border-brand-blue outline-none bg-white text-brand-blue text-sm animate-fade-in" 
                              />
                            )}
                        </div>
@@ -646,7 +866,7 @@ function App() {
                       <h4 className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wide flex items-center gap-1">
                          <Paperclip className="w-3 h-3" /> Arquivos do Imóvel
                       </h4>
-                      <label className="flex flex-col items-center justify-center w-full h-12 border border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
+                      <label className="flex flex-col items-center justify-center w-full h-12 border border-brand-blue border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
                          <div className="flex items-center gap-2 text-gray-500">
                             <Upload className="w-4 h-4" />
                             <span className="text-xs font-medium">Anexar Arquivos (IPTU, Contas, etc)</span>
@@ -656,8 +876,13 @@ function App() {
                       {data.propertyUploadedFiles?.length > 0 && (
                          <ul className="mt-2 space-y-1">
                             {data.propertyUploadedFiles.map((file, i) => (
-                               <li key={i} className="text-xs text-blue-600 flex items-center gap-1 truncate">
-                                  <Paperclip className="w-3 h-3 flex-shrink-0" /> {file}
+                               <li key={i} className="text-xs text-blue-600 flex items-center justify-between gap-1 truncate bg-blue-50 p-1 rounded">
+                                  <div className="flex items-center gap-1 overflow-hidden">
+                                     <Paperclip className="w-3 h-3 flex-shrink-0" /> {file}
+                                  </div>
+                                  <button onClick={() => handleRemovePropertyFile(file)} className="text-red-500 hover:text-red-700">
+                                     <Trash2 className="w-3 h-3" />
+                                  </button>
                                </li>
                             ))}
                          </ul>
@@ -666,25 +891,25 @@ function App() {
 
                   <div>
                     <label className="block text-sm text-gray-600 mb-1 font-semibold">Observações do Contrato</label>
-                    <textarea name="observations" value={data.observations} onChange={handleInputChange} placeholder="Ex: O primeiro aluguel será pago integral..." className="w-full border p-2 rounded-md h-24 focus:border-brand-blue outline-none bg-white text-brand-blue" />
+                    <textarea name="observations" value={data.observations} onChange={handleInputChange} placeholder="Ex: O primeiro aluguel será pago integral..." className="w-full border border-brand-blue p-2 rounded-md h-24 focus:border-brand-blue outline-none bg-white text-brand-blue" />
                   </div>
                 </div>
               </div>
 
               {/* Insurance Calculator */}
-              <div className="bg-white p-6 rounded-lg border border-brand-red border-t-4 h-fit shadow-md">
+              <div className="bg-white p-6 rounded-lg border border-brand-red border-t-4 h-fit shadow-md border-gray-200">
                 <h2 className="text-lg font-bold mb-4 text-brand-red">Cálculo de Seguro</h2>
                 <div className="space-y-4 mb-6">
                    <div>
                       <label className="block text-sm font-medium text-gray-800 mb-1">Tipo de Imóvel</label>
-                      <select name="insuranceType" value={data.insuranceType} onChange={handleInputChange} className="w-full border-gray-300 border rounded-md p-2 focus:ring-1 focus:ring-brand-red outline-none bg-gray-50 text-brand-blue">
+                      <select name="insuranceType" value={data.insuranceType} onChange={handleInputChange} className="w-full border-brand-blue border rounded-md p-2 focus:ring-1 focus:ring-brand-red outline-none bg-gray-50 text-brand-blue">
                          <option value="">Selecione...</option>
                          {Object.values(PropertyType).map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                    </div>
                    <div>
                       <label className="block text-sm font-medium text-gray-800 mb-1">Valor Cobertura (Imóvel)</label>
-                      <select name="insuranceCoverage" value={data.insuranceCoverage} onChange={handleInputChange} className="w-full border-gray-300 border rounded-md p-2 focus:ring-1 focus:ring-brand-red outline-none bg-gray-50 text-brand-blue">
+                      <select name="insuranceCoverage" value={data.insuranceCoverage} onChange={handleInputChange} className="w-full border-brand-blue border rounded-md p-2 focus:ring-1 focus:ring-brand-red outline-none bg-gray-50 text-brand-blue">
                         <option value="">Selecione...</option>
                         {INSURANCE_TABLE[data.insuranceType as PropertyType]?.map((row) => (
                            <option key={row.coverage} value={row.coverage}>R$ {row.coverage.toLocaleString('pt-BR')}</option>
@@ -733,7 +958,7 @@ function App() {
                 <button 
                   onClick={handleGenerateSummary}
                   disabled={isGenerating}
-                  className="bg-brand-red hover:bg-red-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-all flex items-center gap-2 mx-auto disabled:opacity-50"
+                  className="bg-brand-red hover:bg-red-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-all flex items-center gap-2 mx-auto disabled:opacity-50 border border-brand-red"
                 >
                   {isGenerating ? (
                     <><Loader2 className="w-5 h-5 animate-spin" /> Gerando com IA...</>
@@ -747,11 +972,16 @@ function App() {
                <div className="bg-gray-50 p-6 rounded-lg border border-gray-300 relative shadow-sm">
                  <div className="flex justify-between items-center mb-4 border-b pb-2">
                    <h3 className="font-bold text-brand-blue uppercase tracking-wide">Resumo Gerado</h3>
-                   <button onClick={copyToClipboard} className="text-xs bg-white border border-gray-300 px-3 py-1 rounded hover:bg-gray-50 font-medium text-gray-700">Copiar Texto</button>
+                   <div className="flex gap-2">
+                     <button onClick={handlePrint} className="flex items-center gap-1 text-xs bg-white border border-brand-blue text-brand-blue px-3 py-1 rounded hover:bg-blue-50 font-medium">
+                       <Printer className="w-3 h-3" /> Imprimir
+                     </button>
+                     <button onClick={copyToClipboard} className="flex items-center gap-1 text-xs bg-white border border-gray-300 px-3 py-1 rounded hover:bg-gray-50 font-medium text-gray-700">
+                       Copiar
+                     </button>
+                   </div>
                  </div>
-                 <pre className="whitespace-pre-wrap font-mono text-sm text-gray-800 bg-white p-4 rounded border overflow-x-auto border-l-4 border-l-brand-blue">
-                   {generatedSummary}
-                 </pre>
+                 <FormattedSummary id="generated-summary" text={generatedSummary} />
                </div>
              )}
           </div>
@@ -761,7 +991,7 @@ function App() {
         <div className="flex justify-between mt-10 max-w-4xl mx-auto">
           <button 
             onClick={() => setStep(s => Math.max(1, s - 1))}
-            className={`flex items-center gap-2 px-6 py-2 rounded-lg font-medium transition-colors ${step === 1 ? 'invisible' : 'bg-white border hover:bg-gray-50 text-gray-700'}`}
+            className={`flex items-center gap-2 px-6 py-2 rounded-lg font-medium transition-colors border border-brand-blue text-brand-blue hover:bg-blue-50 ${step === 1 ? 'invisible' : 'bg-white'}`}
           >
             <ArrowLeft className="w-4 h-4" /> Voltar
           </button>
@@ -769,7 +999,7 @@ function App() {
           {step < 4 ? (
             <button 
               onClick={() => setStep(s => Math.min(4, s + 1))}
-              className="flex items-center gap-2 px-6 py-2 bg-brand-blue hover:bg-blue-900 text-white rounded-lg font-medium shadow-md transition-all"
+              className="flex items-center gap-2 px-6 py-2 bg-brand-blue hover:bg-blue-900 text-white rounded-lg font-medium shadow-md transition-all border border-brand-blue"
             >
               Próximo <ArrowRight className="w-4 h-4" />
             </button>
