@@ -132,12 +132,22 @@ const FormattedSummary: React.FC<{ text: string, id: string }> = ({ text, id }) 
   return (
     <div id={id} className="font-mono text-sm text-gray-800 bg-white p-8 rounded border-l-4 border-l-brand-blue overflow-x-auto whitespace-pre-wrap border border-brand-blue shadow-sm">
       {lines.map((line, i) => {
+        // Main Header Logic
+        if (line.includes('5005 IMÓVEIS - RESUMO LOCAÇÃO')) {
+           return (
+             <div key={i} className="text-center text-3xl font-black text-brand-blue mb-8 uppercase tracking-wide border-b-2 border-brand-red pb-4">
+               {line.replace(/\*\*/g, '')}
+             </div>
+           );
+        }
+
         const parts = line.split(/(\*\*.*?\*\*)/g);
         return (
           <div key={i} className="min-h-[1.2em]">
             {parts.map((part, j) => {
               if (part.startsWith('**') && part.endsWith('**')) {
-                return <strong key={j} className="text-brand-blue font-bold">{part.slice(2, -2)}</strong>;
+                // Ensure subtitles are very distinct (Bold + Dark Blue + Slightly larger)
+                return <strong key={j} className="text-brand-blue font-extrabold text-base">{part.slice(2, -2)}</strong>;
               }
               return <span key={j}>{part}</span>;
             })}
@@ -364,7 +374,10 @@ function App() {
 
     const printWindow = window.open('', '', 'width=900,height=700');
     if (printWindow) {
-      // Create a simplified version of the summary for printing (converting custom markdown to HTML)
+      // Remove main header from content if it exists to avoid duplication or use it from content
+      // Since we format it in FormattedSummary, let's just strip bold markers for the print view 
+      // and ensure the main title is styled in CSS
+      
       let content = generatedSummary
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold
         .replace(/\n/g, '<br>'); // New lines
@@ -375,13 +388,12 @@ function App() {
             <title>Resumo Locação - 5005 Imóveis</title>
             <style>
               body { font-family: 'Inter', sans-serif; padding: 40px; color: #1e293b; }
-              h1 { color: #002F6C; font-size: 24px; border-bottom: 2px solid #E30613; padding-bottom: 10px; margin-bottom: 20px; }
+              /* Specific style for the main header string if it appears in text */
               strong { color: #002F6C; }
               .content { font-family: monospace; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
             </style>
           </head>
           <body>
-            <h1>5005 IMÓVEIS - RESUMO EXECUTIVO</h1>
             <div class="content">${content}</div>
           </body>
         </html>
@@ -454,7 +466,7 @@ function App() {
         {/* STEP 1: PARTIES (LOCADORES E LOCATÁRIOS) */}
         {step === 1 && (
           <div className="space-y-8 animate-fade-in">
-             <div className="bg-white p-6 rounded-lg shadow-sm border border-l-4 border-brand-blue border-gray-200">
+             <div className="bg-white p-6 rounded-lg shadow-sm border border-l-4 border-brand-blue border-gray-200 border-brand-blue">
                 <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                    <Users className="w-5 h-5 text-brand-red" />
                    Dados das Partes
@@ -524,7 +536,7 @@ function App() {
         {step === 2 && (
           <div className="space-y-8 animate-fade-in">
             
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-l-4 border-brand-blue h-full border-gray-200">
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-l-4 border-brand-blue h-full border-gray-200 border-brand-blue">
               <h2 className="text-lg font-bold mb-4 text-brand-blue flex items-center gap-2">
                 <FileCheck className="w-5 h-5 text-brand-red" />
                 Dados da Negociação
@@ -536,7 +548,7 @@ function App() {
                     name="guaranteeType" 
                     value={data.guaranteeType} 
                     onChange={handleInputChange}
-                    className="w-full border-brand-blue border rounded-md p-2 focus:ring-2 focus:ring-brand-blue outline-none bg-gray-50 text-brand-blue"
+                    className="w-full border-brand-blue border rounded-md p-2 focus:ring-2 focus:ring-brand-blue outline-none bg-gray-50 text-brand-blue border-brand-blue"
                   >
                     <option value="">Selecione...</option>
                     {Object.values(GuaranteeType).map(type => (
@@ -636,7 +648,7 @@ function App() {
             )}
 
             {/* Brokerage Info */}
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-t-4 border-t-brand-blue border-gray-200">
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-t-4 border-t-brand-blue border-gray-200 border-brand-blue">
                 <h2 className="text-lg font-bold mb-4 text-brand-blue flex items-center gap-2">
                   <User className="w-5 h-5 text-brand-red" />
                   Administração & Parcerias
@@ -706,7 +718,7 @@ function App() {
           <div className="space-y-6 animate-fade-in">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               
-              <div className="bg-white p-6 rounded-lg shadow-sm border border-t-4 border-t-brand-blue h-fit border-gray-200">
+              <div className="bg-white p-6 rounded-lg shadow-sm border border-t-4 border-t-brand-blue h-fit border-gray-200 border-brand-blue">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-lg font-bold text-brand-blue flex items-center gap-2">
                     <Calculator className="w-5 h-5 text-brand-red" /> Dados do Imovel Locado
@@ -775,7 +787,7 @@ function App() {
                   {/* Contract Readjustment */}
                   <div className="bg-gray-50 p-2 rounded border border-gray-100">
                      <label className="block text-sm text-gray-600 mb-1 font-semibold">Índice de Reajuste do Contrato</label>
-                     <select name="contractReadjustment" value={data.contractReadjustment} onChange={handleInputChange} className="w-full border border-brand-blue p-2 rounded focus:border-brand-blue outline-none bg-white text-brand-blue text-sm">
+                     <select name="contractReadjustment" value={data.contractReadjustment} onChange={handleInputChange} className="w-full border border-brand-blue p-2 rounded focus:border-brand-blue outline-none bg-white text-brand-blue text-sm border-brand-blue">
                        <option value="">Selecione...</option>
                        <option value="IGPM">IGPM (FGV)</option>
                        <option value="IPCA">IPCA (IBGE)</option>
@@ -862,7 +874,7 @@ function App() {
                   </div>
                   
                   {/* Property Documents Upload */}
-                  <div className="flex flex-col animate-fade-in border-t pt-4 border-dashed border-gray-200">
+                  <div className="flex flex-col animate-fade-in border-t pt-4 border-dashed border-gray-200 border-brand-blue">
                       <h4 className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wide flex items-center gap-1">
                          <Paperclip className="w-3 h-3" /> Arquivos do Imóvel
                       </h4>
@@ -897,19 +909,19 @@ function App() {
               </div>
 
               {/* Insurance Calculator */}
-              <div className="bg-white p-6 rounded-lg border border-brand-red border-t-4 h-fit shadow-md border-gray-200">
+              <div className="bg-white p-6 rounded-lg border border-brand-red border-t-4 h-fit shadow-md border-gray-200 border-brand-blue">
                 <h2 className="text-lg font-bold mb-4 text-brand-red">Cálculo de Seguro</h2>
                 <div className="space-y-4 mb-6">
                    <div>
                       <label className="block text-sm font-medium text-gray-800 mb-1">Tipo de Imóvel</label>
-                      <select name="insuranceType" value={data.insuranceType} onChange={handleInputChange} className="w-full border-brand-blue border rounded-md p-2 focus:ring-1 focus:ring-brand-red outline-none bg-gray-50 text-brand-blue">
+                      <select name="insuranceType" value={data.insuranceType} onChange={handleInputChange} className="w-full border-brand-blue border rounded-md p-2 focus:ring-1 focus:ring-brand-red outline-none bg-gray-50 text-brand-blue border-brand-blue">
                          <option value="">Selecione...</option>
                          {Object.values(PropertyType).map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                    </div>
                    <div>
                       <label className="block text-sm font-medium text-gray-800 mb-1">Valor Cobertura (Imóvel)</label>
-                      <select name="insuranceCoverage" value={data.insuranceCoverage} onChange={handleInputChange} className="w-full border-brand-blue border rounded-md p-2 focus:ring-1 focus:ring-brand-red outline-none bg-gray-50 text-brand-blue">
+                      <select name="insuranceCoverage" value={data.insuranceCoverage} onChange={handleInputChange} className="w-full border-brand-blue border rounded-md p-2 focus:ring-1 focus:ring-brand-red outline-none bg-gray-50 text-brand-blue border-brand-blue">
                         <option value="">Selecione...</option>
                         {INSURANCE_TABLE[data.insuranceType as PropertyType]?.map((row) => (
                            <option key={row.coverage} value={row.coverage}>R$ {row.coverage.toLocaleString('pt-BR')}</option>
@@ -991,7 +1003,7 @@ function App() {
         <div className="flex justify-between mt-10 max-w-4xl mx-auto">
           <button 
             onClick={() => setStep(s => Math.max(1, s - 1))}
-            className={`flex items-center gap-2 px-6 py-2 rounded-lg font-medium transition-colors border border-brand-blue text-brand-blue hover:bg-blue-50 ${step === 1 ? 'invisible' : 'bg-white'}`}
+            className={`flex items-center gap-2 px-6 py-2 rounded-lg font-medium transition-colors border border-brand-blue text-brand-blue hover:bg-blue-50 border-brand-blue ${step === 1 ? 'invisible' : 'bg-white'}`}
           >
             <ArrowLeft className="w-4 h-4" /> Voltar
           </button>
